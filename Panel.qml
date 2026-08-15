@@ -291,7 +291,13 @@ Item {
     color: "transparent"
     WlrLayershell.namespace: "omascratch"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    // OnDemand, not Exclusive: this panel is meant to sit open in a corner
+    // while you work in other windows. Exclusive (what every quick-modal
+    // picker in this shell uses — Emojis, Clipboard, Reminders) grabs ALL
+    // keyboard input system-wide for as long as it's mapped, which blocks
+    // typing/alt-tab everywhere else. OnDemand only focuses this surface
+    // when it's actually clicked into.
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusionMode: ExclusionMode.Ignore
 
     BorderSurface {
