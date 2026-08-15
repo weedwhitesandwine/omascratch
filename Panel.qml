@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
@@ -31,7 +32,13 @@ Item {
   property int fontSize: 14
   property string position: "top-left" // top-left | top-right | bottom-left | bottom-right
   property string keybind: "SUPER + R"
+  property bool stayOnTop: false
   property bool settingsLoaded: false
+
+  // Read (not owned) so the panel can dodge whichever edge the Omarchy bar
+  // is currently docked to — the bar itself is user-configurable via
+  // `omarchy bar position top|bottom|left|right`.
+  property string barPosition: "top"
 
   // ---- keybind recording ----
   property bool recording: false
@@ -54,6 +61,7 @@ Item {
   function open(payloadJson) {
     root.opened = true
     root.settingsOpen = false
+    root.stayOnTop = false
     Qt.callLater(function() { textArea.forceActiveFocus() })
   }
 
@@ -107,6 +115,28 @@ Item {
     printErrors: false
     onLoaded: root.loadSettings(text())
     onLoadFailed: root.loadSettings("")
+  }
+
+  // Read-only: tracks the live Omarchy bar position so the panel can avoid
+  // the edge the bar occupies, whichever side the user has it docked to.
+  FileView {
+    id: barConfigFile
+    path: root.homeDir + "/.config/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.loadBarPosition(text())
+    onFileChanged: reload()
+  }
+
+  function loadBarPosition(json) {
+    try {
+      var parsed = JSON.parse(json || "{}")
+      var pos = parsed.bar && parsed.bar.position
+      if (pos === "top" || pos === "bottom" || pos === "left" || pos === "right")
+        root.barPosition = pos
+    } catch (e) {
+      // Keep the last-known position on a parse error.
+    }
   }
 
   Timer {
@@ -282,10 +312,18 @@ Item {
       left: root.position === "top-left" || root.position === "bottom-left"
       right: root.position === "top-right" || root.position === "bottom-right"
     }
-    margins.top: root.gap
-    margins.left: root.gap
-    margins.right: root.gap
-    margins.bottom: root.gap
+    // Clear whichever edge the Omarchy bar is docked to (top/bottom/left/
+    // right, user-configurable) — otherwise this overlay-layer surface
+    // paints over the bar's own icons, including the one that opened it,
+    // eating clicks meant for the bar underneath.
+    readonly property bool dockedTop: root.position === "top-left" || root.position === "top-right"
+    readonly property bool dockedBottom: root.position === "bottom-left" || root.position === "bottom-right"
+    readonly property bool dockedLeft: root.position === "top-left" || root.position === "bottom-left"
+    readonly property bool dockedRight: root.position === "top-right" || root.position === "bottom-right"
+    margins.top: (dockedTop && root.barPosition === "top") ? Style.bar.sizeHorizontal + root.gap : root.gap
+    margins.bottom: (dockedBottom && root.barPosition === "bottom") ? Style.bar.sizeHorizontal + root.gap : root.gap
+    margins.left: (dockedLeft && root.barPosition === "left") ? Style.bar.sizeVertical + root.gap : root.gap
+    margins.right: (dockedRight && root.barPosition === "right") ? Style.bar.sizeVertical + root.gap : root.gap
     implicitWidth: root.cardWidth
     implicitHeight: root.cardHeight
     color: "transparent"
@@ -299,6 +337,16 @@ Item {
     // when it's actually clicked into.
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusionMode: ExclusionMode.Ignore
+
+    // Click-outside-to-dismiss, matching every other panel in this shell —
+    // unless pinned via the pin button, in which case the panel stays open
+    // so it can be used alongside other windows. SUPER+R (or whichever
+    // keybind) always closes it either way, via root.toggle()/dismiss().
+    HyprlandFocusGrab {
+      active: root.opened && !root.stayOnTop
+      windows: [panel]
+      onCleared: root.dismiss()
+    }
 
     BorderSurface {
       id: card
@@ -319,7 +367,7 @@ Item {
         ScrollView {
           visible: !root.settingsOpen
           anchors.fill: parent
-          anchors.rightMargin: gearButton.width + Style.spacing.sm
+          anchors.rightMargin: headerRow.width + Style.spacing.sm
           clip: true
 
           TextArea {
@@ -348,7 +396,7 @@ Item {
         Flickable {
           visible: root.settingsOpen
           anchors.fill: parent
-          anchors.rightMargin: gearButton.width + Style.spacing.sm
+          anchors.rightMargin: headerRow.width + Style.spacing.sm
           contentWidth: width
           contentHeight: settingsColumn.implicitHeight
           clip: true
@@ -531,14 +579,34 @@ Item {
           }
         }
 
-        PanelActionButton {
-          id: gearButton
+        Row {
+          id: headerRow
           anchors.top: parent.top
           anchors.right: parent.right
-          iconText: root.settingsOpen ? "✕" : "󰒓"
-          tooltipText: root.settingsOpen ? "Back to notes" : "Settings"
-          foreground: root.foreground
-          onClicked: root.settingsOpen = !root.settingsOpen
+          spacing: Style.spacing.xs
+
+          Button {
+            id: pinButton
+            text: "Pin"
+            bordered: true
+            selected: root.stayOnTop
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            verticalPadding: Style.spacing.xs
+            tooltipText: root.stayOnTop
+              ? "Pinned — clicking elsewhere won't close it"
+              : "Pin to stay open while using other windows"
+            onClicked: root.stayOnTop = !root.stayOnTop
+          }
+
+          PanelActionButton {
+            id: gearButton
+            iconText: root.settingsOpen ? "✕" : "󰒓"
+            tooltipText: root.settingsOpen ? "Back to notes" : "Settings"
+            foreground: root.foreground
+            onClicked: root.settingsOpen = !root.settingsOpen
+          }
         }
       }
     }
