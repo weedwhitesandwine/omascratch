@@ -135,6 +135,8 @@ Item {
     if (typeof parsed.fontSize === "number") root.fontSize = parsed.fontSize
     if (typeof parsed.position === "string") root.position = parsed.position
     if (typeof parsed.keybind === "string") root.keybind = parsed.keybind
+    if (typeof parsed.cardWidth === "number") root.cardWidth = parsed.cardWidth
+    if (typeof parsed.cardHeight === "number") root.cardHeight = parsed.cardHeight
     root.settingsLoaded = true
   }
 
@@ -146,13 +148,17 @@ Item {
     settingsFile.setText(JSON.stringify({
       fontSize: root.fontSize,
       position: root.position,
-      keybind: root.keybind
+      keybind: root.keybind,
+      cardWidth: root.cardWidth,
+      cardHeight: root.cardHeight
     }, null, 2) + "\n")
   }
 
   onFontSizeChanged: scheduleSettingsSave()
   onPositionChanged: scheduleSettingsSave()
   onKeybindChanged: scheduleSettingsSave()
+  onCardWidthChanged: scheduleSettingsSave()
+  onCardHeightChanged: scheduleSettingsSave()
 
   Component.onCompleted: {
     ensureDirsProc.running = true
@@ -161,6 +167,14 @@ Item {
 
   function setFontSize(size) {
     root.fontSize = Math.max(10, Math.min(28, size))
+  }
+
+  function setCardWidth(width) {
+    root.cardWidth = Math.max(220, Math.min(900, width))
+  }
+
+  function setCardHeight(height) {
+    root.cardHeight = Math.max(200, Math.min(900, height))
   }
 
   function setPosition(pos) {
@@ -405,6 +419,66 @@ Item {
                   iconText: "+"
                   foreground: root.foreground
                   onClicked: root.setFontSize(root.fontSize + 1)
+                }
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Text {
+                text: "Size"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+
+              Row {
+                spacing: Style.spacing.sm
+
+                PanelActionButton {
+                  iconText: "−"
+                  foreground: root.foreground
+                  onClicked: root.setCardWidth(root.cardWidth - 20)
+                }
+
+                Text {
+                  text: "W " + root.cardWidth
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                PanelActionButton {
+                  iconText: "+"
+                  foreground: root.foreground
+                  onClicked: root.setCardWidth(root.cardWidth + 20)
+                }
+              }
+
+              Row {
+                spacing: Style.spacing.sm
+
+                PanelActionButton {
+                  iconText: "−"
+                  foreground: root.foreground
+                  onClicked: root.setCardHeight(root.cardHeight - 20)
+                }
+
+                Text {
+                  text: "H " + root.cardHeight
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                PanelActionButton {
+                  iconText: "+"
+                  foreground: root.foreground
+                  onClicked: root.setCardHeight(root.cardHeight + 20)
                 }
               }
             }
