@@ -4,6 +4,8 @@ A quick-note scratchpad for [Omarchy](https://omarchy.org/) that docks to a
 corner of your screen. Toggle it with a keybind or the bar icon, type,
 close — your text is still there next time.
 
+![Omascratch open in the top-right corner](preview.png)
+
 ## Features
 
 - Notes autosave to disk as you type (debounced, no save button).
