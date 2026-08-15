@@ -328,13 +328,31 @@ Item {
     implicitHeight: root.cardHeight
     color: "transparent"
     WlrLayershell.namespace: "omascratch"
-    WlrLayershell.layer: WlrLayer.Overlay
+    // Top, not Overlay: Overlay sits above literally everything (even
+    // fullscreen windows) and is what every quick-modal picker in this shell
+    // uses (Emojis, Clipboard, Reminders) — surfaces meant to dominate input
+    // until closed. The one first-party surface in this shell built to stay
+    // mapped and coexist with normal windows, the bar itself, uses Top.
+    WlrLayershell.layer: WlrLayer.Top
     // OnDemand, not Exclusive: this panel is meant to sit open in a corner
-    // while you work in other windows. Exclusive (what every quick-modal
-    // picker in this shell uses — Emojis, Clipboard, Reminders) grabs ALL
-    // keyboard input system-wide for as long as it's mapped, which blocks
-    // typing/alt-tab everywhere else. OnDemand only focuses this surface
-    // when it's actually clicked into.
+    // while you work in other windows. Exclusive grabs ALL keyboard input
+    // system-wide for as long as it's mapped, which blocks typing/alt-tab
+    // everywhere else. OnDemand only focuses this surface when it's
+    // actually clicked into, and gives focus back on click-elsewhere.
+    //
+    // KNOWN LIMITATION (kept as-is; a view-only-while-pinned workaround
+    // was tried and rejected as pointless): Hyprland has a confirmed
+    // compositor bug (hyprwm/Hyprland#8293) where an on_demand layer
+    // surface releasing focus back to an ALREADY-OPEN window updates
+    // `hyprctl activewindow` correctly but never re-sends the actual
+    // wl_keyboard.enter event, silently eating that window's keystrokes.
+    // A newly-created window is unaffected (different focus path), which
+    // is why pinning before opening the target app works fine. The usual
+    // workaround, forcing Hyprland to re-run its focus logic via
+    // `hyprctl dispatch focuscurrentorlast`, isn't reachable here: this
+    // system's Hyprland build routes all dispatches through a restricted
+    // Lua wrapper (hl.dsp.*) that doesn't expose it and has no raw
+    // passthrough (confirmed via strings/Hyprland binary + live testing).
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusionMode: ExclusionMode.Ignore
 
@@ -342,6 +360,13 @@ Item {
     // unless pinned via the pin button, in which case the panel stays open
     // so it can be used alongside other windows. SUPER+R (or whichever
     // keybind) always closes it either way, via root.toggle()/dismiss().
+    //
+    // KNOWN LIMITATION: when pinned, clicking into a window that was
+    // already open before the panel doesn't reliably hand keyboard focus
+    // to it (a newly-opened window works fine). Re-activating this grab
+    // to try to fix that made things worse — reactivating it appears to
+    // re-steal focus back onto the panel as a side effect — so that
+    // attempt was reverted. Root cause is still open; see project notes.
     HyprlandFocusGrab {
       active: root.opened && !root.stayOnTop
       windows: [panel]
