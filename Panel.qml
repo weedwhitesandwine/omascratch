@@ -248,6 +248,11 @@ Item {
       event.accepted = true
       return
     }
+    if (mods.length > 1) {
+      root.recordError = "Use exactly one modifier — combos with two or more fail to apply on this system."
+      event.accepted = true
+      return
+    }
 
     root.recordError = ""
     root.pendingCombo = mods.join(" ") + " + " + keyStr
@@ -483,7 +488,7 @@ Item {
 
               Text {
                 visible: root.recording
-                text: "Press a shortcut with a modifier (e.g. Super+T). Esc to cancel."
+                text: "Press a shortcut with one modifier (e.g. Super+T). Esc to cancel."
                 color: Qt.darker(root.foreground, 1.4)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall

@@ -47,8 +47,8 @@ below.)
 - Click the gear icon (top-right of the card) to open settings:
   - **Font size** — `−`/`+` steppers, 10–28px.
   - **Position** — top-left / top-right / bottom-left / bottom-right.
-  - **Keybind** — click the current combo, press a new one (must include a
-    modifier), click Apply.
+  - **Keybind** — click the current combo, press a new one (exactly one
+    modifier — Super, Ctrl, Alt, or Shift), click Apply.
 
 ## External dependencies and system-level modifications
 
