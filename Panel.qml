@@ -7,11 +7,6 @@ import QtQuick.Controls
 import qs.Commons
 import qs.Ui
 
-// Corner-docked note scratchpad. Summoned via `omarchy-shell shell toggle
-// io.github.weedwhitesandwine.omascratch` (bound to a Hyprland keybind, and/or the
-// bar icon in BarWidget.qml). Notes autosave to disk on every edit; the gear
-// button opens an in-place settings view for font size, screen corner, and
-// the keybind itself.
 Item {
   id: root
 
@@ -28,23 +23,18 @@ Item {
   readonly property string notesPath: stateDir + "/notes.txt"
   readonly property string settingsPath: stateDir + "/settings.json"
 
-  // ---- persisted settings ----
   property int fontSize: 14
-  property string position: "top-left" // top-left | top-right | bottom-left | bottom-right
+  property string position: "top-left"
   property string keybind: "SUPER + R"
   property bool stayOnTop: false
   property bool settingsLoaded: false
 
-  // Read (not owned) so the panel can dodge whichever edge the Omarchy bar
-  // is currently docked to — the bar itself is user-configurable via
-  // `omarchy bar position top|bottom|left|right`.
   property string barPosition: "top"
 
-  // ---- keybind recording ----
   property bool recording: false
   property string pendingCombo: ""
   property string recordError: ""
-  property string applyStatus: "" // "" | "applying" | "error"
+  property string applyStatus: ""
   property string applyError: ""
 
   property color background: Color.menu.background
@@ -82,8 +72,6 @@ Item {
     else root.open("{}")
   }
 
-  // ---------------------------------------------------------------- notes
-
   FileView {
     id: notesFile
     path: root.notesPath
@@ -100,8 +88,6 @@ Item {
     onTriggered: notesFile.setText(textArea.text)
   }
 
-  // -------------------------------------------------------------- settings
-
   Process {
     id: ensureDirsProc
     command: ["mkdir", "-p", root.stateDir]
@@ -117,8 +103,6 @@ Item {
     onLoadFailed: root.loadSettings("")
   }
 
-  // Read-only: tracks the live Omarchy bar position so the panel can avoid
-  // the edge the bar occupies, whichever side the user has it docked to.
   FileView {
     id: barConfigFile
     path: root.homeDir + "/.config/omarchy/shell.json"
@@ -135,7 +119,6 @@ Item {
       if (pos === "top" || pos === "bottom" || pos === "left" || pos === "right")
         root.barPosition = pos
     } catch (e) {
-      // Keep the last-known position on a parse error.
     }
   }
 
@@ -184,8 +167,6 @@ Item {
     root.position = pos
   }
 
-  // ------------------------------------------------------- keybind capture
-
   function beginRecording() {
     root.recording = true
     root.recordError = ""
@@ -205,9 +186,6 @@ Item {
       || key === Qt.Key_Control || key === Qt.Key_Shift || key === Qt.Key_Alt || key === Qt.Key_AltGr
   }
 
-  // Maps a Qt key code to the token Hyprland's bindings.lua combos use
-  // (letters/digits uppercase, named keys lowercase to match this file's
-  // existing convention, e.g. "SUPER + R", "SUPER + comma").
   function hyprKeyName(key) {
     if (key >= Qt.Key_A && key <= Qt.Key_Z) return String.fromCharCode(key)
     if (key >= Qt.Key_0 && key <= Qt.Key_9) return String.fromCharCode(key)
@@ -301,8 +279,6 @@ Item {
     }
   }
 
-  // --------------------------------------------------------------- window
-
   PanelWindow {
     id: panel
     visible: root.opened
@@ -312,10 +288,6 @@ Item {
       left: root.position === "top-left" || root.position === "bottom-left"
       right: root.position === "top-right" || root.position === "bottom-right"
     }
-    // Clear whichever edge the Omarchy bar is docked to (top/bottom/left/
-    // right, user-configurable) — otherwise this overlay-layer surface
-    // paints over the bar's own icons, including the one that opened it,
-    // eating clicks meant for the bar underneath.
     readonly property bool dockedTop: root.position === "top-left" || root.position === "top-right"
     readonly property bool dockedBottom: root.position === "bottom-left" || root.position === "bottom-right"
     readonly property bool dockedLeft: root.position === "top-left" || root.position === "bottom-left"
@@ -328,45 +300,10 @@ Item {
     implicitHeight: root.cardHeight
     color: "transparent"
     WlrLayershell.namespace: "omascratch"
-    // Top, not Overlay: Overlay sits above literally everything (even
-    // fullscreen windows) and is what every quick-modal picker in this shell
-    // uses (Emojis, Clipboard, Reminders) — surfaces meant to dominate input
-    // until closed. The one first-party surface in this shell built to stay
-    // mapped and coexist with normal windows, the bar itself, uses Top.
     WlrLayershell.layer: WlrLayer.Top
-    // OnDemand, not Exclusive: this panel is meant to sit open in a corner
-    // while you work in other windows. Exclusive grabs ALL keyboard input
-    // system-wide for as long as it's mapped, which blocks typing/alt-tab
-    // everywhere else. OnDemand only focuses this surface when it's
-    // actually clicked into, and gives focus back on click-elsewhere.
-    //
-    // KNOWN LIMITATION (kept as-is; a view-only-while-pinned workaround
-    // was tried and rejected as pointless): Hyprland has a confirmed
-    // compositor bug (hyprwm/Hyprland#8293) where an on_demand layer
-    // surface releasing focus back to an ALREADY-OPEN window updates
-    // `hyprctl activewindow` correctly but never re-sends the actual
-    // wl_keyboard.enter event, silently eating that window's keystrokes.
-    // A newly-created window is unaffected (different focus path), which
-    // is why pinning before opening the target app works fine. The usual
-    // workaround, forcing Hyprland to re-run its focus logic via
-    // `hyprctl dispatch focuscurrentorlast`, isn't reachable here: this
-    // system's Hyprland build routes all dispatches through a restricted
-    // Lua wrapper (hl.dsp.*) that doesn't expose it and has no raw
-    // passthrough (confirmed via strings/Hyprland binary + live testing).
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusionMode: ExclusionMode.Ignore
 
-    // Click-outside-to-dismiss, matching every other panel in this shell —
-    // unless pinned via the pin button, in which case the panel stays open
-    // so it can be used alongside other windows. SUPER+R (or whichever
-    // keybind) always closes it either way, via root.toggle()/dismiss().
-    //
-    // KNOWN LIMITATION: when pinned, clicking into a window that was
-    // already open before the panel doesn't reliably hand keyboard focus
-    // to it (a newly-opened window works fine). Re-activating this grab
-    // to try to fix that made things worse — reactivating it appears to
-    // re-steal focus back onto the panel as a side effect — so that
-    // attempt was reverted. Root cause is still open; see project notes.
     HyprlandFocusGrab {
       active: root.opened && !root.stayOnTop
       windows: [panel]

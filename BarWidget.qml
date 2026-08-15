@@ -2,8 +2,6 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Bar icon for the Omascratch panel. A pencil glyph that toggles the panel
-// through the same IPC route the keybind uses.
 BarWidget {
   id: root
   moduleName: "io.github.weedwhitesandwine.omascratch"

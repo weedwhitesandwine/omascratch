@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Rewrites the Omascratch toggle keybind in ~/.config/hypr/bindings.lua and
-# applies it live. Invoked by Panel.qml's settings view (Quickshell Process)
-# with the new combo as $1, e.g. `set-keybind.sh "SUPER + T"`.
-#
-# Safety: backs up bindings.lua before editing, reloads Hyprland, then checks
-# `hyprctl configerrors`. Any parse error rolls the file back and reloads
-# again, so a bad edit here can never leave Hyprland in a broken state.
 set -euo pipefail
 
 NEWCOMBO="${1:?usage: set-keybind.sh \"SUPER + X\"}"
