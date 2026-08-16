@@ -13,7 +13,10 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "✎"
+    text: "〰"
+    foreground: "#FFD500"
+    fontSize: Style.font.body * 1.4
+    textRotation: 45
     tooltipText: "Omascratch"
     fixedWidth: root.bar && root.bar.vertical ? -1 : Style.space(27)
     fixedHeight: root.bar && root.bar.vertical ? Style.space(26) : -1
