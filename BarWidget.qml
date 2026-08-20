@@ -6,11 +6,16 @@ BarWidget {
   id: root
   moduleName: "io.github.weedwhitesandwine.omascratch"
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  // showIcon=false collapses the widget to nothing: the plugin stays
+  // enabled and the keybind keeps working, the bar just shows no icon.
+  readonly property bool showIcon: setting("showIcon", true) !== false
+
+  implicitWidth: showIcon ? button.implicitWidth : 0
+  implicitHeight: showIcon ? button.implicitHeight : 0
 
   WidgetButton {
     id: button
+    visible: root.showIcon
     anchors.fill: parent
     bar: root.bar
     text: "〰"
