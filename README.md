@@ -15,7 +15,9 @@ close — your text is still there next time.
 - Adjustable font size.
 - The toggle keybind is rebindable from inside the panel itself — no manual
   editing of Hyprland config required.
-- Optional status-bar icon (pencil glyph) that toggles the same panel.
+- Optional status-bar icon (yellow squiggle) that toggles the same panel —
+  and it really is optional: a `showIcon` setting hides it while the plugin
+  and keybind keep working.
 - **Pin button**: by default, clicking anywhere outside the panel closes it
   (matching every other panel in Omarchy's shell). Pin keeps it open instead,
   so it can sit visible in the corner while you work in other windows.
@@ -31,6 +33,15 @@ Add the bar icon (optional):
 ```
 omarchy bar put io.github.weedwhitesandwine.omascratch --section right
 ```
+
+Prefer no icon in the bar? Hide it — the plugin stays enabled and the
+keybind keeps working:
+
+```
+omarchy bar set io.github.weedwhitesandwine.omascratch showIcon false --json
+```
+
+(`true` brings it back. Takes effect immediately.)
 
 Add a keybind, e.g. in `~/.config/hypr/bindings.lua`:
 
