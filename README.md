@@ -41,7 +41,13 @@ keybind keeps working:
 omarchy bar set io.github.weedwhitesandwine.omascratch showIcon false --json
 ```
 
-(`true` brings it back. Takes effect immediately.)
+Bring the icon back:
+
+```
+omarchy bar set io.github.weedwhitesandwine.omascratch showIcon true --json
+```
+
+(Both take effect immediately.)
 
 Add a keybind, e.g. in `~/.config/hypr/bindings.lua`:
 
