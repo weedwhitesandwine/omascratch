@@ -72,13 +72,60 @@ Item {
     else root.open("{}")
   }
 
+  // Everything read off disk goes through `head`, which puts the ceiling in
+  // front of the read rather than behind it. FileView cannot stop short of the
+  // end of a file — by the time text() exists the whole file is in a shell that
+  // stays up for days — so it keeps the writing and stops doing the reading,
+  // with blockAllReads set so it never pulls a file into memory. The notes are
+  // the user's own, but they sit on disk where a restored backup can leave
+  // anything, and shell.json belongs to Omarchy rather than to this plugin.
+  readonly property int notesCeiling: 4 * 1024 * 1024
+  readonly property int settingsCeiling: 256 * 1024
+  readonly property int barConfigCeiling: 1024 * 1024
+
   FileView {
     id: notesFile
     path: root.notesPath
     watchChanges: true
     atomicWrites: true
+    blockAllReads: true
+    preload: false
     printErrors: false
-    onLoaded: textArea.text = text()
+    onFileChanged: root.readNotes()
+  }
+
+  function readNotes() { notesReader.running = false; notesReader.running = true }
+  function readSettings() { settingsReader.running = false; settingsReader.running = true }
+  function readBarConfig() { barConfigReader.running = false; barConfigReader.running = true }
+
+  Process {
+    id: notesReader
+    command: ["head", "-c", String(root.notesCeiling), "--", root.notesPath]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: textArea.text = text
+    }
+  }
+
+  Process {
+    id: settingsReader
+    command: ["head", "-c", String(root.settingsCeiling), "--", root.settingsPath]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.loadSettings(text)
+    }
+    // No settings file yet just means first run; the defaults are the truth.
+    onExited: if (!root.settingsLoaded) root.loadSettings("")
+  }
+
+  Process {
+    id: barConfigReader
+    command: ["head", "-c", String(root.barConfigCeiling), "--",
+              root.homeDir + "/.config/omarchy/shell.json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.loadBarPosition(text)
+    }
   }
 
   Timer {
@@ -98,18 +145,18 @@ Item {
     path: root.settingsPath
     watchChanges: false
     atomicWrites: true
+    blockAllReads: true
+    preload: false
     printErrors: false
-    onLoaded: root.loadSettings(text())
-    onLoadFailed: root.loadSettings("")
   }
 
   FileView {
-    id: barConfigFile
     path: root.homeDir + "/.config/omarchy/shell.json"
     watchChanges: true
+    blockAllReads: true
+    preload: false
     printErrors: false
-    onLoaded: root.loadBarPosition(text())
-    onFileChanged: reload()
+    onFileChanged: root.readBarConfig()
   }
 
   function loadBarPosition(json) {
@@ -129,12 +176,23 @@ Item {
     onTriggered: root.flushSettings()
   }
 
+  // A hotkey is modifiers then one key. This value is substituted into
+  // bindings.lua as Lua source, so anything else is refused rather than
+  // escaped — here, and again in set-keybind.sh, since the file can be edited
+  // or restored without going near this panel.
+  readonly property var keybindPattern:
+    /^(SUPER|CTRL|ALT|SHIFT)( \+ (SUPER|CTRL|ALT|SHIFT))* \+ ([A-Z0-9]|F([1-9]|1[0-2]))$/
+
+  function validKeybind(v) {
+    return typeof v === "string" && v.length <= 40 && root.keybindPattern.test(v)
+  }
+
   function loadSettings(json) {
     var parsed = {}
     try { parsed = JSON.parse(json || "{}") } catch (e) { parsed = {} }
     if (typeof parsed.fontSize === "number") root.fontSize = parsed.fontSize
     if (typeof parsed.position === "string") root.position = parsed.position
-    if (typeof parsed.keybind === "string") root.keybind = parsed.keybind
+    if (root.validKeybind(parsed.keybind)) root.keybind = parsed.keybind
     if (typeof parsed.cardWidth === "number") root.cardWidth = parsed.cardWidth
     if (typeof parsed.cardHeight === "number") root.cardHeight = parsed.cardHeight
     root.settingsLoaded = true
@@ -162,7 +220,11 @@ Item {
 
   Component.onCompleted: {
     ensureDirsProc.running = true
-    Qt.callLater(function() { settingsFile.reload() })
+    Qt.callLater(function() {
+      root.readSettings()
+      root.readNotes()
+      root.readBarConfig()
+    })
   }
 
   function setFontSize(size) {
@@ -392,6 +454,7 @@ Item {
               spacing: Style.spacing.xs
 
               Text {
+                textFormat: Text.PlainText
                 text: "Font size"
                 color: root.foreground
                 font.family: root.fontFamily
@@ -408,6 +471,7 @@ Item {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: root.fontSize + "px"
                   color: root.foreground
                   font.family: root.fontFamily
@@ -428,6 +492,7 @@ Item {
               spacing: Style.spacing.xs
 
               Text {
+                textFormat: Text.PlainText
                 text: "Size"
                 color: root.foreground
                 font.family: root.fontFamily
@@ -444,6 +509,7 @@ Item {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: "W " + root.cardWidth
                   color: root.foreground
                   font.family: root.fontFamily
@@ -468,6 +534,7 @@ Item {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   text: "H " + root.cardHeight
                   color: root.foreground
                   font.family: root.fontFamily
@@ -488,6 +555,7 @@ Item {
               spacing: Style.spacing.xs
 
               Text {
+                textFormat: Text.PlainText
                 text: "Position"
                 color: root.foreground
                 font.family: root.fontFamily
@@ -538,6 +606,7 @@ Item {
               spacing: Style.spacing.xs
 
               Text {
+                textFormat: Text.PlainText
                 text: "Keybind"
                 color: root.foreground
                 font.family: root.fontFamily
@@ -561,6 +630,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 visible: root.recording
                 text: "Press a shortcut with one modifier (e.g. Super+T). Esc to cancel."
                 color: Qt.darker(root.foreground, 1.4)
@@ -571,6 +641,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 visible: root.recordError !== ""
                 text: root.recordError
                 color: Color.urgent
@@ -601,6 +672,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 visible: root.applyStatus === "applying"
                 text: "Applying…"
                 color: Qt.darker(root.foreground, 1.4)
@@ -608,6 +680,7 @@ Item {
                 font.pixelSize: Style.font.bodySmall
               }
               Text {
+                textFormat: Text.PlainText
                 visible: root.applyStatus === "error"
                 text: "Failed: " + root.applyError
                 color: Color.urgent
