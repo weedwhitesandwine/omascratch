@@ -1,8 +1,8 @@
 # Omascratch
 
 A quick-note scratchpad for [Omarchy](https://omarchy.org/) that docks to a
-corner of your screen. Toggle it with a keybind or the bar icon, type,
-close — your text is still there next time.
+corner of your screen. Toggle it with a keybind or the bar icon, jot something
+down, close — your text is still waiting there the next time you open it.
 
 ![Omascratch open in the top-right corner](preview.png)
 
