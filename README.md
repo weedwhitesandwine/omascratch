@@ -13,8 +13,9 @@ down, close — your text is still waiting there the next time you open it.
   edge the Omarchy bar is docked to (top/bottom/left/right), so it never
   paints over the bar's own icons.
 - Adjustable font size.
-- The toggle keybind is rebindable from inside the panel itself — no manual
-  editing of Hyprland config required.
+- The toggle keybind is rebindable from inside the panel itself, once the
+  binding exists — add the line from **Install** below the first time, and
+  every change after that is made from the panel.
 - Optional status-bar icon (yellow squiggle) that toggles the same panel —
   and it really is optional: a `showIcon` setting hides it while the plugin
   and keybind keep working.
@@ -67,12 +68,18 @@ below.)
   - **Font size** — `−`/`+` steppers, 10–28px.
   - **Position** — top-left / top-right / bottom-left / bottom-right.
   - **Keybind** — click the current combo, press a new one (exactly one
-    modifier — Super, Ctrl, Alt, or Shift), click Apply.
+    modifier — Super, Ctrl or Alt; Shift alone is refused, because binding a
+    capital letter would open the panel every time you typed one), click
+    Apply.
 
 ## External dependencies and system-level modifications
 
-This plugin runs `bash`, `awk`, `mkdir`, `cp`, and `hyprctl` via Quickshell's
-`Process` — all standard on any Omarchy install, no extra packages required.
+This plugin runs `bash`, `awk`, `mkdir`, `cp`, `test`, `hyprctl` and `python3`
+via Quickshell's `Process` — all standard on any Omarchy install, no extra
+packages required. `python3` is what reads the notes, the settings and the bar
+configuration back off disk: it opens each one refusing symlinks and anything
+that is not a plain file, refuses to wait on a pipe, and reports a file it
+would not read rather than returning it empty.
 
 **The keybind picker in Settings modifies `~/.config/hypr/bindings.lua`.**
 When you record and apply a new shortcut, `set-keybind.sh`:

@@ -23,22 +23,26 @@ Item {
     'path = sys.argv[1]; ceiling = int(sys.argv[2])',
     'try:',
     '    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)',
+    'except FileNotFoundError:',
+    '    raise SystemExit(2)',
     'except OSError:',
-    '    raise SystemExit',
-    'raw = b""',
+    '    raise SystemExit(1)',
     'try:',
-    '    if stat.S_ISREG(os.fstat(fd).st_mode):',
-    '        with os.fdopen(fd, "rb") as handle:',
-    '            fd = None',
-    '            raw = handle.read(ceiling + 1)',
+    '    if not stat.S_ISREG(os.fstat(fd).st_mode):',
+    '        raise SystemExit(1)',
+    '    with os.fdopen(fd, "rb") as handle:',
+    '        fd = None',
+    '        raw = handle.read(ceiling + 1)',
     'except OSError:',
-    '    raw = b""',
+    '    raise SystemExit(1)',
     'finally:',
     '    if fd is not None:',
     '        os.close(fd)',
-    'if raw and len(raw) <= ceiling:',
-    '    sys.stdout.buffer.write(raw)'
-  ].join("\n")
+    'if len(raw) > ceiling:',
+    '    raise SystemExit(1)',
+    'sys.stdout.buffer.write(raw)'
+  ].join("
+")
 
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
@@ -102,7 +106,7 @@ Item {
     else root.open("{}")
   }
 
-  // Everything read off disk goes through `head`, which puts the ceiling in
+  // Everything read off disk goes through a reader that puts the ceiling in
   // front of the read rather than behind it. FileView cannot stop short of the
   // end of a file — by the time text() exists the whole file is in a shell that
   // stays up for days — so it keeps the writing and stops doing the reading,
@@ -113,6 +117,24 @@ Item {
   readonly property int settingsCeiling: 256 * 1024
   readonly property int barConfigCeiling: 1024 * 1024
 
+  // The bar's own hidden flag, watched the way the bar itself watches it.
+  property bool barHidden: false
+  FileView {
+    path: root.homeDir + "/.local/state/omarchy/toggles/bar-off"
+    watchChanges: true
+    blockAllReads: true
+    preload: false
+    printErrors: false
+    onFileChanged: root.checkBarHidden()
+    onPathChanged: root.checkBarHidden()
+  }
+  function checkBarHidden() { barHiddenProc.running = false; barHiddenProc.running = true }
+  Process {
+    id: barHiddenProc
+    command: ["test", "-f", root.homeDir + "/.local/state/omarchy/toggles/bar-off"]
+    onExited: function(code) { root.barHidden = (code === 0) }
+  }
+
   FileView {
     id: notesFile
     path: root.notesPath
@@ -121,20 +143,40 @@ Item {
     blockAllReads: true
     preload: false
     printErrors: false
-    onFileChanged: root.readNotes()
+    // Saving changes the file, which fires this. Re-reading then replaces the
+    // editor's contents with what was on disk a moment ago — losing anything
+    // typed while the reader was starting up, and dropping the cursor to the
+    // top of the note mid-sentence. Our own writes are skipped; someone
+    // else's are still picked up.
+    onFileChanged: {
+      if (root.savingNow) { root.savingNow = false; return }
+      root.readNotes()
+    }
   }
+  property bool savingNow: false
 
   function readNotes() { notesReader.running = false; notesReader.running = true }
   function readSettings() { settingsReader.running = false; settingsReader.running = true }
   function readBarConfig() { barConfigReader.running = false; barConfigReader.running = true }
 
+  // Notes are plain text, so an empty answer is a legitimate value — which
+  // makes "the read was refused" and "the file is empty" the same string. The
+  // reader reports refusal as a failing exit status instead, and the editor is
+  // only filled from a read that actually succeeded: assigning the empty
+  // answer would blank the editor, and the autosave would then write that
+  // emptiness over the real notes a moment later.
+  property string notesPending: ""
   Process {
     id: notesReader
     command: ["python3", "-c", root.safeRead,
               root.notesPath, String(root.notesCeiling)]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: textArea.text = text
+      onStreamFinished: root.notesPending = text
+    }
+    onExited: function(code) {
+      if (code === 0) textArea.text = root.notesPending
+      root.notesPending = ""
     }
   }
 
@@ -146,8 +188,16 @@ Item {
       waitForEnd: true
       onStreamFinished: root.loadSettings(text)
     }
-    // No settings file yet just means first run; the defaults are the truth.
-    onExited: if (!root.settingsLoaded) root.loadSettings("")
+    // A missing settings file means first run, and the defaults are the truth.
+    // A read that FAILED means nothing of the sort — treating the two alike
+    // let one bad read at startup stand the defaults up as real settings, and
+    // the next nudge of any control then wrote them over the saved position,
+    // size and shortcut. Exit 2 is the reader's way of saying the file is not
+    // there; anything else leaves settings unloaded, so nothing is saved over.
+    onExited: function(code) {
+      if (root.settingsLoaded) return
+      if (code === 2) root.loadSettings("")
+    }
   }
 
   Process {
@@ -164,7 +214,7 @@ Item {
     id: saveTimer
     interval: 400
     repeat: false
-    onTriggered: notesFile.setText(textArea.text)
+    onTriggered: { root.savingNow = true; notesFile.setText(textArea.text) }
   }
 
   Process {
@@ -219,14 +269,23 @@ Item {
     return typeof v === "string" && v.length <= 40 && root.keybindPattern.test(v)
   }
 
+  readonly property var positions: ["top-left", "top-right", "bottom-left", "bottom-right"]
+
+  // A settings file can be hand-edited or restored from a mangled backup, so
+  // what comes out of it goes through the same limits as what comes out of the
+  // steppers. A font size of 400 or a card four pixels wide is unusable, and
+  // the steppers clamp relative to the loaded value, so it cannot be undone
+  // from the panel either. An unknown position leaves every anchor false and
+  // the card docked to nothing.
   function loadSettings(json) {
     var parsed = {}
     try { parsed = JSON.parse(json || "{}") } catch (e) { parsed = {} }
-    if (typeof parsed.fontSize === "number") root.fontSize = parsed.fontSize
-    if (typeof parsed.position === "string") root.position = parsed.position
+    if (typeof parsed.fontSize === "number") root.setFontSize(parsed.fontSize)
+    if (typeof parsed.position === "string"
+        && root.positions.indexOf(parsed.position) !== -1) root.position = parsed.position
     if (root.validKeybind(parsed.keybind)) root.keybind = parsed.keybind
-    if (typeof parsed.cardWidth === "number") root.cardWidth = parsed.cardWidth
-    if (typeof parsed.cardHeight === "number") root.cardHeight = parsed.cardHeight
+    if (typeof parsed.cardWidth === "number") root.setCardWidth(parsed.cardWidth)
+    if (typeof parsed.cardHeight === "number") root.setCardHeight(parsed.cardHeight)
     root.settingsLoaded = true
   }
 
@@ -256,6 +315,7 @@ Item {
       root.readSettings()
       root.readNotes()
       root.readBarConfig()
+      root.checkBarHidden()
     })
   }
 
@@ -305,26 +365,31 @@ Item {
     names[Qt.Key_Escape] = "ESCAPE"
     names[Qt.Key_Tab] = "TAB"
     names[Qt.Key_Backspace] = "BACKSPACE"
-    names[Qt.Key_Delete] = "Delete"
-    names[Qt.Key_Home] = "Home"
-    names[Qt.Key_End] = "End"
-    names[Qt.Key_PageUp] = "PageUp"
-    names[Qt.Key_PageDown] = "PageDown"
-    names[Qt.Key_Left] = "left"
-    names[Qt.Key_Right] = "right"
-    names[Qt.Key_Up] = "up"
-    names[Qt.Key_Down] = "down"
-    names[Qt.Key_Comma] = "comma"
-    names[Qt.Key_Period] = "period"
-    names[Qt.Key_Minus] = "minus"
-    names[Qt.Key_Equal] = "equal"
-    names[Qt.Key_Slash] = "slash"
-    names[Qt.Key_Backslash] = "backslash"
-    names[Qt.Key_Semicolon] = "semicolon"
-    names[Qt.Key_Apostrophe] = "apostrophe"
-    names[Qt.Key_BracketLeft] = "bracketleft"
-    names[Qt.Key_BracketRight] = "bracketright"
-    names[Qt.Key_QuoteLeft] = "grave"
+    // Spelled the way both validators accept, not the way Hyprland prints
+    // them: the recorder invites the user to press these keys, so producing a
+    // name that is then refused on Apply makes the invitation a lie. Twenty of
+    // the twenty-five named keys used to be refused this way.
+    names[Qt.Key_Delete] = "DELETE"
+    names[Qt.Key_Insert] = "INSERT"
+    names[Qt.Key_Home] = "HOME"
+    names[Qt.Key_End] = "END"
+    names[Qt.Key_PageUp] = "PAGE_UP"
+    names[Qt.Key_PageDown] = "PAGE_DOWN"
+    names[Qt.Key_Left] = "LEFT"
+    names[Qt.Key_Right] = "RIGHT"
+    names[Qt.Key_Up] = "UP"
+    names[Qt.Key_Down] = "DOWN"
+    names[Qt.Key_Comma] = "COMMA"
+    names[Qt.Key_Period] = "PERIOD"
+    names[Qt.Key_Minus] = "MINUS"
+    names[Qt.Key_Equal] = "EQUAL"
+    names[Qt.Key_Slash] = "SLASH"
+    names[Qt.Key_Backslash] = "BACKSLASH"
+    names[Qt.Key_Semicolon] = "SEMICOLON"
+    names[Qt.Key_Apostrophe] = "APOSTROPHE"
+    names[Qt.Key_BracketLeft] = "BRACKETLEFT"
+    names[Qt.Key_BracketRight] = "BRACKETRIGHT"
+    names[Qt.Key_QuoteLeft] = "GRAVE"
     return names[key] || ""
   }
 
@@ -351,8 +416,15 @@ Item {
       event.accepted = true
       return
     }
+    // Shift on its own does not qualify: "SHIFT + T" binds capital T
+    // globally, so typing one anywhere would open the scratchpad.
+    if (mods.length === 1 && mods[0] === "SHIFT") {
+      root.recordError = "Shift on its own is not enough — hold Super, Ctrl or Alt as well, or a capital letter would open this everywhere."
+      event.accepted = true
+      return
+    }
     if (mods.length === 0) {
-      root.recordError = "Add a modifier (Super/Ctrl/Alt/Shift) — a bare key would break typing everywhere."
+      root.recordError = "Add a modifier (Super, Ctrl or Alt) — a bare key would break typing everywhere."
       event.accepted = true
       return
     }
@@ -405,8 +477,14 @@ Item {
     readonly property bool dockedBottom: root.position === "bottom-left" || root.position === "bottom-right"
     readonly property bool dockedLeft: root.position === "top-left" || root.position === "bottom-left"
     readonly property bool dockedRight: root.position === "top-right" || root.position === "bottom-right"
-    margins.top: (dockedTop && root.barPosition === "top") ? Style.bar.sizeHorizontal + root.gap : root.gap
-    margins.bottom: (dockedBottom && root.barPosition === "bottom") ? Style.bar.sizeHorizontal + root.gap : root.gap
+    // Leave room for the bar only when there is a bar to leave room for.
+    // Omarchy hides it with an on-disk flag rather than through shell.json,
+    // so a hidden bar left the card floating a bar's height from an empty
+    // screen edge.
+    margins.top: (dockedTop && root.barPosition === "top" && !root.barHidden)
+                 ? Style.bar.sizeHorizontal + root.gap : root.gap
+    margins.bottom: (dockedBottom && root.barPosition === "bottom" && !root.barHidden)
+                    ? Style.bar.sizeHorizontal + root.gap : root.gap
     margins.left: (dockedLeft && root.barPosition === "left") ? Style.bar.sizeVertical + root.gap : root.gap
     margins.right: (dockedRight && root.barPosition === "right") ? Style.bar.sizeVertical + root.gap : root.gap
     implicitWidth: root.cardWidth

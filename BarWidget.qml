@@ -8,7 +8,13 @@ BarWidget {
 
   // showIcon=false collapses the widget to nothing: the plugin stays
   // enabled and the keybind keeps working, the bar just shows no icon.
-  readonly property bool showIcon: setting("showIcon", true) !== false
+  // `omarchy bar set <id> showIcon false` without --json stores the *string*
+  // "false", which is not the boolean, so a strict test left the icon showing
+  // and the setting silently ignored.
+  readonly property bool showIcon: {
+    var v = setting("showIcon", true)
+    return !(v === false || v === "false" || v === 0 || v === "0")
+  }
 
   implicitWidth: showIcon ? button.implicitWidth : 0
   implicitHeight: showIcon ? button.implicitHeight : 0

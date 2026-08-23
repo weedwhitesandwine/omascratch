@@ -44,19 +44,49 @@ trap 'rm -f "$BACKUP" "$TMP"' EXIT
 cp "$FILE" "$BACKUP"
 chmod --reference="$FILE" "$TMP" 2>/dev/null || true
 
-awk -v marker="$MARKER" -v combo="$NEWCOMBO" '
+# The marker only proves the toggle command is somewhere in the file; it does
+# not prove there is an `o.bind("…")` on that line to rewrite. If the binding
+# was written some other way — a single-quoted Lua string, a helper table, or
+# the marker sitting in a comment — awk would copy the file through unchanged
+# and report success, and the panel would then display and save a shortcut
+# that is bound to nothing. Count the substitutions and refuse if there were
+# none.
+CHANGED=$(awk -v marker="$MARKER" -v combo="$NEWCOMBO" '
   index($0, marker) {
-    sub(/o\.bind\("[^"]*"/, "o.bind(\"" combo "\"")
+    n += sub(/o\.bind\("[^"]*"/, "o.bind(\"" combo "\"")
   }
-  { print }
-' "$FILE" > "$TMP" && mv -f "$TMP" "$FILE"
+  { print > tmp }
+  END { print n + 0 > "/dev/stderr" }
+' tmp="$TMP" "$FILE" 2>&1 >/dev/null) || CHANGED=0
 
-hyprctl reload >/dev/null
+if [ "${CHANGED:-0}" -lt 1 ]; then
+  echo "ERROR: found the Omascratch line but no o.bind(\"…\") on it to change" >&2
+  exit 2
+fi
+mv -f "$TMP" "$FILE"
 
-ERRS="$(hyprctl configerrors)"
-if [ -n "$ERRS" ]; then
+# From here the config on disk has already changed, so every failure has to
+# put it back. `set -e` would abort before the revert and the EXIT trap would
+# then delete the backup, leaving the file edited, unverified and
+# unrecoverable — so these two calls are guarded rather than trusted.
+restore() {
   cp "$BACKUP" "$FILE"
-  hyprctl reload >/dev/null
+  hyprctl reload >/dev/null 2>&1 || true
+}
+
+if ! hyprctl reload >/dev/null 2>&1; then
+  restore
+  echo "ERROR: could not ask Hyprland to reload; the shortcut was put back" >&2
+  exit 1
+fi
+
+if ! ERRS="$(hyprctl configerrors 2>/dev/null)"; then
+  restore
+  echo "ERROR: could not read Hyprland's config errors; the shortcut was put back" >&2
+  exit 1
+fi
+if [ -n "$ERRS" ]; then
+  restore
   echo "ERROR: $ERRS" >&2
   exit 1
 fi
