@@ -77,11 +77,15 @@ This plugin runs `bash`, `awk`, `mkdir`, `cp`, and `hyprctl` via Quickshell's
 **The keybind picker in Settings modifies `~/.config/hypr/bindings.lua`.**
 When you record and apply a new shortcut, `set-keybind.sh`:
 
-1. Backs up `bindings.lua` to `bindings.lua.bak.<unix-timestamp>` (not
-   auto-deleted — clean these up yourself periodically if you rebind often).
+1. Refuses outright if `bindings.lua` is a symlink, and makes a temporary
+   backup of it beside itself under an unpredictable name (removed
+   automatically when the script exits).
 2. Rewrites the specific `o.bind(...)` line that toggles Omascratch,
    identified by matching the exact `omarchy-shell shell toggle
-   io.github.weedwhitesandwine.omascratch` command string — no other line is touched.
+   io.github.weedwhitesandwine.omascratch` command string — no other line is
+   touched. The rewrite is staged under an exclusively-created temporary name
+   in the same directory and renamed over the file in one atomic step, so a
+   symlink planted at any of those names is never written through.
 3. Runs `hyprctl reload` and checks `hyprctl configerrors`.
 4. If the reload produces any config error, restores the backup and reloads
    again — a bad rebind can't leave Hyprland in a broken state.

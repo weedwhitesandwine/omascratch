@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.weedwhitesandwine.omascratch",
   "name": "Omascratch",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "weedwhitesandwine",
   "license": "MIT",
   "description": "A quick-note scratchpad that docks to a screen corner. Toggle with a keybind or the bar icon; font size, corner, and the keybind itself are all configurable from an in-panel settings view. Summon with: omarchy-shell shell toggle io.github.weedwhitesandwine.omascratch",
