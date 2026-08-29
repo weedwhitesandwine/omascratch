@@ -59,7 +59,10 @@ Item {
 
   property int fontSize: 14
   property string position: "top-left"
-  property string keybind: "SUPER + R"
+  // Empty until the user binds one. A fresh install has no block in
+  // bindings.lua, so a default of "SUPER + R" here would have the panel
+  // reporting a shortcut that is bound to nothing.
+  property string keybind: ""
   property bool stayOnTop: false
   property bool settingsLoaded: false
 
@@ -104,6 +107,26 @@ Item {
   function toggle() {
     if (root.opened) root.dismiss()
     else root.open("{}")
+  }
+
+  // The gear is a click target only, so without these the settings view is
+  // unreachable from the keyboard — and the notes view holds the focus the
+  // whole time it is open. Focus moves with the view: the panel closes itself
+  // when its focus grab is cleared, so a view whose key handler nothing is
+  // focused on would swallow Escape and answer to nothing else.
+  function openSettings() {
+    root.settingsOpen = true
+    Qt.callLater(function() { settingsKeys.forceActiveFocus() })
+  }
+
+  function closeSettings() {
+    root.settingsOpen = false
+    root.recording = false
+    Qt.callLater(function() { textArea.forceActiveFocus() })
+  }
+
+  function isSettingsShortcut(event) {
+    return event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)
   }
 
   // Everything read off disk goes through a reader that puts the ceiling in
@@ -260,7 +283,7 @@ Item {
 
   // A hotkey is modifiers then one key. This value is substituted into
   // bindings.lua as Lua source, so anything else is refused rather than
-  // escaped — here, and again in set-keybind.sh, since the file can be edited
+  // escaped — here, and again in omascratch-ctl.sh, since the file can be edited
   // or restored without going near this panel.
   readonly property var keybindPattern:
     /^(SUPER|CTRL|ALT|SHIFT)( \+ (SUPER|CTRL|ALT|SHIFT))* \+ ([A-Z0-9]|F([1-9]|1[0-2])|SPACE|RETURN|ENTER|TAB|ESCAPE|BACKSPACE|DELETE|INSERT|HOME|END|PAGE_UP|PAGE_DOWN|UP|DOWN|LEFT|RIGHT|COMMA|PERIOD|SLASH|MINUS|EQUAL|SEMICOLON|APOSTROPHE|GRAVE|BRACKETLEFT|BRACKETRIGHT|BACKSLASH)$/
@@ -283,7 +306,8 @@ Item {
     if (typeof parsed.fontSize === "number") root.setFontSize(parsed.fontSize)
     if (typeof parsed.position === "string"
         && root.positions.indexOf(parsed.position) !== -1) root.position = parsed.position
-    if (root.validKeybind(parsed.keybind)) root.keybind = parsed.keybind
+    if (parsed.keybind === "" || root.validKeybind(parsed.keybind))
+      root.keybind = parsed.keybind
     if (typeof parsed.cardWidth === "number") root.setCardWidth(parsed.cardWidth)
     if (typeof parsed.cardHeight === "number") root.setCardHeight(parsed.cardHeight)
     root.settingsLoaded = true
@@ -347,6 +371,10 @@ Item {
     root.recording = false
     root.recordError = ""
     root.pendingCombo = ""
+    // The recorder keeps the focus once it has it, and its handler answers
+    // every key while it does — so Escape after a cancel would cancel a
+    // recording that had already stopped instead of leaving the settings view.
+    Qt.callLater(function() { settingsKeys.forceActiveFocus() })
   }
 
   function isBareModifier(key) {
@@ -443,7 +471,21 @@ Item {
     if (root.pendingCombo === "") return
     root.applyStatus = "applying"
     root.applyError = ""
-    keybindProc.command = ["bash", root.pluginDir + "/set-keybind.sh", root.pendingCombo]
+    root.clearing = false
+    keybindProc.command = ["bash", root.pluginDir + "/omascratch-ctl.sh", "bind", root.pendingCombo]
+    keybindProc.running = true
+  }
+
+  // Takes the block back out of bindings.lua. Same script, same verification
+  // and same revert-on-failure as binding — an unbind that left Hyprland
+  // unable to parse its own config would be no better than a bad bind.
+  property bool clearing: false
+  function clearKeybind() {
+    if (root.keybind === "") return
+    root.applyStatus = "applying"
+    root.applyError = ""
+    root.clearing = true
+    keybindProc.command = ["bash", root.pluginDir + "/omascratch-ctl.sh", "unbind"]
     keybindProc.running = true
   }
 
@@ -453,12 +495,15 @@ Item {
     stderr: StdioCollector { id: keybindStderr; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode === 0) {
-        root.keybind = root.pendingCombo
+        root.keybind = root.clearing ? "" : root.pendingCombo
         root.applyStatus = ""
         root.recording = false
         root.pendingCombo = ""
+        root.clearing = false
+        Qt.callLater(function() { settingsKeys.forceActiveFocus() })
       } else {
         root.applyStatus = "error"
+        root.clearing = false
         root.applyError = (keybindStderr.text || "").trim() || "Failed to apply keybind"
       }
     }
@@ -517,15 +562,27 @@ Item {
         anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
 
+        // The header sits in a strip of its own rather than floating over the
+        // top-right corner. Keeping space clear beside it cost the full width
+        // of both buttons on every line of the note, all the way down the
+        // card, to keep two lines clear of them.
         ScrollView {
+          id: notesScroll
           visible: !root.settingsOpen
           anchors.fill: parent
-          anchors.rightMargin: headerRow.width + Style.spacing.sm
+          anchors.topMargin: headerRow.height + Style.spacing.xs
           clip: true
+          ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
           TextArea {
             id: textArea
             wrapMode: TextArea.Wrap
+            // The scrollbar is painted over the text rather than beside it, so
+            // without a gutter the last character of a full line sits under it.
+            // Reserved whether or not the bar is showing: making the gutter
+            // conditional would change the wrap width, which changes the
+            // content height, which is what decides whether the bar shows.
+            rightPadding: notesScroll.ScrollBar.vertical.width + Style.spacing.xs
             font.family: root.fontFamily
             font.pixelSize: root.fontSize
             color: root.foreground
@@ -539,6 +596,9 @@ Item {
               if (event.key === Qt.Key_Escape) {
                 root.dismiss()
                 event.accepted = true
+              } else if (root.isSettingsShortcut(event)) {
+                root.openSettings()
+                event.accepted = true
               }
             }
 
@@ -549,7 +609,7 @@ Item {
         Flickable {
           visible: root.settingsOpen
           anchors.fill: parent
-          anchors.rightMargin: headerRow.width + Style.spacing.sm
+          anchors.topMargin: headerRow.height + Style.spacing.xs
           contentWidth: width
           contentHeight: settingsColumn.implicitHeight
           clip: true
@@ -723,12 +783,31 @@ Item {
                 font.pixelSize: Style.font.bodySmall
               }
 
-              Button {
-                text: root.recording ? (root.pendingCombo !== "" ? root.pendingCombo : "Press keys…") : root.keybind
-                bordered: true
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.recording ? root.cancelRecording() : root.beginRecording()
+              Row {
+                spacing: Style.spacing.sm
+
+                Button {
+                  text: root.recording
+                    ? (root.pendingCombo !== "" ? root.pendingCombo : "Press keys…")
+                    : (root.keybind !== "" ? root.keybind : "Not bound")
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.recording ? root.cancelRecording() : root.beginRecording()
+                }
+
+                // Uninstalling deletes the script that takes the block out of
+                // bindings.lua, so this is the only thing that can remove it —
+                // which is why the line below says so while there is one.
+                Button {
+                  text: "Clear"
+                  bordered: true
+                  visible: root.keybind !== "" && !root.recording
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  tooltipText: "Remove the shortcut from bindings.lua"
+                  onClicked: root.clearKeybind()
+                }
               }
 
               Item {
@@ -742,7 +821,25 @@ Item {
               Text {
                 textFormat: Text.PlainText
                 visible: root.recording
-                text: "Press a shortcut with one modifier (e.g. Super+T). Esc to cancel."
+                // The second sentence is the one people need. A combination
+                // Hyprland has already bound is swallowed by the compositor and
+                // never reaches this panel, so the recorder simply sits there
+                // showing nothing — which reads as broken rather than as taken.
+                text: "Press a shortcut with one modifier (e.g. Super+T). Esc to cancel. "
+                  + "A combination Hyprland already uses never reaches here — if nothing "
+                  + "appears, that key is taken."
+                color: Qt.darker(root.foreground, 1.4)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.Wrap
+                width: parent.width
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                visible: root.keybind !== "" && !root.recording && root.applyStatus === ""
+                text: "Bound in a marked block in ~/.config/hypr/bindings.lua. Press Clear "
+                  + "before uninstalling — removal deletes the script that would take it out."
                 color: Qt.darker(root.foreground, 1.4)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -803,6 +900,22 @@ Item {
           }
         }
 
+        // Holds the focus while the settings view is up, so Escape and Ctrl+,
+        // are answered there as well as in the notes view. A focus holder
+        // rather than a control — everything visible in that view is a click
+        // target with its own handler.
+        Item {
+          id: settingsKeys
+          width: 1
+          height: 1
+          Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape || root.isSettingsShortcut(event)) {
+              root.closeSettings()
+              event.accepted = true
+            }
+          }
+        }
+
         Row {
           id: headerRow
           anchors.top: parent.top
@@ -829,7 +942,7 @@ Item {
             iconText: root.settingsOpen ? "✕" : "󰒓"
             tooltipText: root.settingsOpen ? "Back to notes" : "Settings"
             foreground: root.foreground
-            onClicked: root.settingsOpen = !root.settingsOpen
+            onClicked: root.settingsOpen ? root.closeSettings() : root.openSettings()
           }
         }
       }
